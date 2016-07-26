@@ -27,8 +27,9 @@ type udpPacket struct {
 }
 
 type gateway struct {
-	addr     *net.UDPAddr
-	lastSeen time.Time
+	addr            *net.UDPAddr
+	protocolVersion ProtocolVersion
+	lastSeen        time.Time
 }
 
 type gateways struct {
@@ -176,6 +177,7 @@ func (b *Backend) Send(txPacket models.TXPacket) error {
 		return err
 	}
 	pullResp := PullRespPacket{
+		ProtocolVersion: gw.protocolVersion,
 		Payload: PullRespPayload{
 			TXPK: txpk,
 		},
@@ -261,7 +263,8 @@ func (b *Backend) handlePullData(addr *net.UDPAddr, data []byte) error {
 		return err
 	}
 	ack := PullACKPacket{
-		RandomToken: p.RandomToken,
+		ProtocolVersion: p.ProtocolVersion,
+		RandomToken:     p.RandomToken,
 	}
 	bytes, err := ack.MarshalBinary()
 	if err != nil {
@@ -269,8 +272,9 @@ func (b *Backend) handlePullData(addr *net.UDPAddr, data []byte) error {
 	}
 
 	err = b.gateways.set(p.GatewayMAC, gateway{
-		addr:     addr,
-		lastSeen: time.Now().UTC(),
+		addr:            addr,
+		protocolVersion: p.ProtocolVersion,
+		lastSeen:        time.Now().UTC(),
 	})
 	if err != nil {
 		return err
@@ -291,7 +295,8 @@ func (b *Backend) handlePushData(addr *net.UDPAddr, data []byte) error {
 
 	// ack the packet
 	ack := PushACKPacket{
-		RandomToken: p.RandomToken,
+		ProtocolVersion: p.ProtocolVersion,
+		RandomToken:     p.RandomToken,
 	}
 	bytes, err := ack.MarshalBinary()
 	if err != nil {
