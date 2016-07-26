@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/brocaar/lora-gateway-bridge/backend/mqttpubsub"
+	"github.com/brocaar/lora-gateway-bridge/backend/thethingsnetwork"
 	"github.com/brocaar/lora-gateway-bridge/gateway"
 	"github.com/brocaar/lorawan"
 	"github.com/codegangsta/cli"
@@ -19,18 +19,22 @@ var version string // set by the compiler
 func run(c *cli.Context) error {
 	log.SetLevel(log.Level(uint8(c.Int("log-level"))))
 
-	pubsub, err := mqttpubsub.NewBackend(c.String("mqtt-server"), c.String("mqtt-username"), c.String("mqtt-password"))
+	ttn, err := thethingsnetwork.NewBackend(
+		c.String("ttn-discovery-server"),
+		c.String("ttn-router"),
+		"token",
+	)
 	if err != nil {
-		log.Fatalf("could not setup mqtt backend: %s", err)
+		log.Fatalf("could not setup ttn backend: %s", err)
 	}
-	defer pubsub.Close()
+	defer ttn.Close()
 
 	onNew := func(mac lorawan.EUI64) error {
-		return pubsub.SubscribeGatewayTX(mac)
+		return ttn.SubscribeGatewayTX(mac)
 	}
 
 	onDelete := func(mac lorawan.EUI64) error {
-		return pubsub.UnSubscribeGatewayTX(mac)
+		return ttn.UnSubscribeGatewayTX(mac)
 	}
 
 	gw, err := gateway.NewBackend(c.String("udp-bind"), onNew, onDelete)
@@ -41,7 +45,7 @@ func run(c *cli.Context) error {
 
 	go func() {
 		for rxPacket := range gw.RXPacketChan() {
-			if err := pubsub.PublishGatewayRX(rxPacket.RXInfo.MAC, rxPacket); err != nil {
+			if err := ttn.PublishGatewayRX(rxPacket.RXInfo.MAC, rxPacket); err != nil {
 				log.Errorf("could not publish RXPacket: %s", err)
 			}
 		}
@@ -49,14 +53,14 @@ func run(c *cli.Context) error {
 
 	go func() {
 		for stats := range gw.StatsChan() {
-			if err := pubsub.PublishGatewayStats(stats.MAC, stats); err != nil {
+			if err := ttn.PublishGatewayStats(stats.MAC, stats); err != nil {
 				log.Errorf("could not publish GatewayStatsPacket: %s", err)
 			}
 		}
 	}()
 
 	go func() {
-		for txPacket := range pubsub.TXPacketChan() {
+		for txPacket := range ttn.TXPacketChan() {
 			if err := gw.Send(txPacket); err != nil {
 				log.Errorf("could not send TXPacket: %s", err)
 			}
@@ -85,20 +89,16 @@ func main() {
 			EnvVar: "UDP_BIND",
 		},
 		cli.StringFlag{
-			Name:   "mqtt-server",
-			Usage:  "MQTT server",
-			Value:  "tcp://127.0.0.1:1883",
-			EnvVar: "MQTT_SERVER",
+			Name:   "ttn-discovery-server",
+			Usage:  "TTN Discovery Server",
+			Value:  "discover.thethingsnetwork.org:1900",
+			EnvVar: "TTN_DISCOVERY_SERVER",
 		},
 		cli.StringFlag{
-			Name:   "mqtt-username",
-			Usage:  "MQTT username",
-			EnvVar: "MQTT_USERNAME",
-		},
-		cli.StringFlag{
-			Name:   "mqtt-password",
-			Usage:  "MQTT password",
-			EnvVar: "MQTT_PASSWORD",
+			Name:   "ttn-router",
+			Usage:  "TTN Router ID",
+			Value:  "dev",
+			EnvVar: "TTN_ROUTER",
 		},
 		cli.IntFlag{
 			Name:   "log-level",
